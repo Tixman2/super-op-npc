@@ -3,6 +3,7 @@ import os
 import json
 import random
 import re
+import time
 import discord
 from discord.ext import commands
 from aiohttp import web
@@ -10,6 +11,7 @@ from aiohttp import web
 #--//// Variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 MEMORY_FILE = "sop_memory.json"
+last_msg_time = 0 #--//// Anti-double lock
 
 #--// Init
 intents = discord.Intents.default()
@@ -31,14 +33,12 @@ def save_mem(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 def is_gibberish(text):
-    #//// Detects keyboard smashing (too many consonants or no spaces)
-    if len(text) > 10 and " " not in text: return True
-    if re.search(r'[^aeiouy\s]{6,}', text.lower()): return True
+    if len(text) > 15 and " " not in text: return True
+    if re.search(r'[^aeiouy\s]{7,}', text.lower()): return True
     return False
 
 def get_lang(text):
-    #//// Default is English now
-    fr_words = ["le", "la", "est", "manger", "salut", "tu", "vous", "suis"]
+    fr_words = ["le", "la", "est", "manger", "salut", "tu", "vous", "suis", "ou", "dans"]
     if any(w in text.lower().split() for w in fr_words):
         return "fr"
     return "en"
@@ -55,21 +55,25 @@ async def start_web():
 @bot.event
 async def on_ready():
     await start_web()
-    print(f"--// SOP System Active (Primary Lang: English)")
+    print(f"--// SOP Fixed System Active")
 
 @bot.event
 async def on_message(message):
+    global last_msg_time
     if message.author.bot: return
+    
+    #//// Anti-Double Trigger Security
+    current_time = time.time()
+    if (bot.user in message.mentions or "sop" in message.content.lower()) and (current_time - last_msg_time < 0.8):
+        return
     
     data = load_mem()
     user = message.author.name
     clean = re.sub(r'<@!?[0-9]+>', '', message.content).strip()
 
-    #//// Feeding with filtering
+    #//// Feeding
     if len(clean) > 2 and not message.content.startswith('!'):
-        if is_gibberish(clean):
-            print(f"[Filter] Ignored gibberish from {user}")
-        else:
+        if not is_gibberish(clean):
             lang = get_lang(clean)
             if clean not in data[lang]:
                 data[lang].append(clean)
@@ -79,19 +83,20 @@ async def on_message(message):
 
     #//// Response Logic
     if bot.user in message.mentions or "sop" in message.content.lower():
+        last_msg_time = current_time #--//// Update lock time
+        
         if is_gibberish(clean):
             await message.reply("Stop smashing your keyboard, you look like a glitched NPC.")
             return
 
         lang = get_lang(message.content)
-        if not data[lang]: lang = "en" if lang == "fr" else "fr" # Fallback
+        if not data[lang]: lang = "en" if lang == "fr" else "fr"
         if not data[lang]:
-            await message.reply("My memory is as empty as your skill level. Talk more.")
+            await message.reply("Memory empty. Feed me more trash talk.")
             return
 
         pick = random.choice(data[lang])
         
-        #//// SOP Responses
         if lang == "en":
             res = [f"I recycled your trash: '{pick}'", f"'{pick}'? Your brain data is corrupted.", f"Imagine saying '{pick}' in 2026."]
         else:
@@ -99,10 +104,8 @@ async def on_message(message):
         
         await message.reply(random.choice(res))
 
-        #//// 5% GIF Chance
         if random.random() < 0.05:
-            gif = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif"
-            await message.channel.send(gif)
+            await message.channel.send("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif")
 
 #--// Start
 bot.run(DISCORD_TOKEN)
