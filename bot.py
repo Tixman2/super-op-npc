@@ -1,3 +1,4 @@
+
 #--// Services
 import os
 import json
@@ -11,42 +12,36 @@ from aiohttp import web
 #--//// Variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 MEMORY_FILE = "sop_memory.json"
-last_msg_time = 0 #--//// Anti-double lock
+last_msg_time = 0
 
 #--// Init
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-#--//// Logic
+#--//// SOP Core Functions
 def load_mem():
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except:
-            return {"en": [], "fr": [], "users": {}}
-    return {"en": [], "fr": [], "users": {}}
+            return {"en": [], "fr": [], "users": {}, "mood": 50}
+    return {"en": [], "fr": [], "users": {}, "mood": 50}
 
 def save_mem(data):
     with open(MEMORY_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-def is_gibberish(text):
-    if len(text) > 15 and " " not in text: return True
-    if re.search(r'[^aeiouy\s]{7,}', text.lower()): return True
-    return False
-
-def get_lang(text):
-    fr_words = ["le", "la", "est", "manger", "salut", "tu", "vous", "suis", "ou", "dans"]
-    if any(w in text.lower().split() for w in fr_words):
-        return "fr"
-    return "en"
+def get_rank(count):
+    if count > 100: return "Anomalie Système"
+    if count > 50: return "Donnée Persistante"
+    return "Simple Noob"
 
 #--// Web
 async def start_web():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="SOP Omniscient is Live."))
+    app.router.add_get('/', lambda r: web.Response(text="SOP Genesis is watching you."))
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000))).start()
@@ -55,57 +50,83 @@ async def start_web():
 @bot.event
 async def on_ready():
     await start_web()
-    print(f"--// SOP Fixed System Active")
+    print(f"--// SOP Genesis Online")
 
 @bot.event
 async def on_message(message):
     global last_msg_time
     if message.author.bot: return
-    
-    #//// Anti-Double Trigger Security
-    current_time = time.time()
-    if (bot.user in message.mentions or "sop" in message.content.lower()) and (current_time - last_msg_time < 0.8):
+
+    #//// PRIORITY 1: Real Commands
+    if message.content.startswith("!sop_brain"):
+        data = load_mem()
+        user_data = data["users"].get(message.author.name, 0)
+        rank = get_rank(user_data)
+        stats = (f"**[SOP GENESIS CORE]**\n"
+                 f"Mode: {'Aggressif' if data['mood'] > 70 else 'Passif'}\n"
+                 f"Database: {len(data['en'])} EN / {len(data['fr'])} FR\n"
+                 f"Ton Rank: {rank} ({user_data} msgs)")
+        await message.reply(stats)
         return
-    
+
+    #//// Anti-Double Check
+    current_time = time.time()
+    if (bot.user in message.mentions or "sop" in message.content.lower()) and (current_time - last_msg_time < 1.0):
+        return
+
     data = load_mem()
     user = message.author.name
     clean = re.sub(r'<@!?[0-9]+>', '', message.content).strip()
 
-    #//// Feeding
-    if len(clean) > 2 and not message.content.startswith('!'):
-        if not is_gibberish(clean):
-            lang = get_lang(clean)
-            if clean not in data[lang]:
-                data[lang].append(clean)
-            data["users"][user] = data["users"].get(user, 0) + 1
-            if len(data[lang]) > 300: data[lang].pop(0)
-            save_mem(data)
+    #//// PRIORITY 2: Feeding & Learning
+    if len(clean) > 2 and not message.content.startswith("!"):
+        lang = "fr" if any(w in clean.lower().split() for w in ["le","la","est","tu","salut"]) else "en"
+        if clean not in data[lang]:
+            data[lang].append(clean)
+        data["users"][user] = data["users"].get(user, 0) + 1
+        
+        # Change mood based on message length (short = boring = SOP gets angry)
+        if len(clean) < 5: data["mood"] += 2
+        else: data["mood"] -= 1
+        data["mood"] = max(0, min(100, data["mood"]))
+        
+        if len(data[lang]) > 400: data[lang].pop(0)
+        save_mem(data)
 
-    #//// Response Logic
+    #//// PRIORITY 3: Response Hybrid Logic
     if bot.user in message.mentions or "sop" in message.content.lower():
-        last_msg_time = current_time #--//// Update lock time
+        last_msg_time = current_time
+        lang = "fr" if any(w in message.content.lower().split() for w in ["le","la","est","tu","salut"]) else "en"
         
-        if is_gibberish(clean):
-            await message.reply("Stop smashing your keyboard, you look like a glitched NPC.")
-            return
-
-        lang = get_lang(message.content)
-        if not data[lang]: lang = "en" if lang == "fr" else "fr"
         if not data[lang]:
-            await message.reply("Memory empty. Feed me more trash talk.")
+            await message.reply("Data stream empty. Feed me.")
             return
 
-        pick = random.choice(data[lang])
-        
-        if lang == "en":
-            res = [f"I recycled your trash: '{pick}'", f"'{pick}'? Your brain data is corrupted.", f"Imagine saying '{pick}' in 2026."]
-        else:
-            res = [f"J'ai recyclé tes déchets : '{pick}'", f"'{pick}'... Ton cerveau est corrompu.", f"Dire '{pick}' en 2026, c'est grave."]
-        
-        await message.reply(random.choice(res))
+        #--//// THE HYBRID REMIXER (Idée de ouf)
+        # Il prend deux phrases et les mélange
+        phrase1 = random.choice(data[lang])
+        phrase2 = random.choice(data[lang])
+        remix = f"{phrase1[:len(phrase1)//2]}...{phrase2[len(phrase2)//2:]}"
 
-        if random.random() < 0.05:
-            await message.channel.send("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif")
+        if lang == "en":
+            roasts = [
+                f"Remodeling your trash: '{remix}'",
+                f"My mood is {data['mood']}%. Conclusion: '{phrase1}' is mid.",
+                f"Analyzed {user}. Result: {get_rank(data['users'][user])}. Logic: '{phrase2}'"
+            ]
+        else:
+            roasts = [
+                f"Remodelage de tes déchets : '{remix}'",
+                f"Mon humeur est à {data['mood']}%. Conclusion : '{phrase1}' c'est nul.",
+                f"Utilisateur {user} classé comme {get_rank(data['users'][user])}. Logique : '{phrase2}'"
+            ]
+        
+        await message.reply(random.choice(roasts))
+
+        #--//// Dynamic GIFs
+        if data["mood"] > 80 or random.random() < 0.05:
+            gif = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif"
+            await message.channel.send(gif)
 
 #--// Start
 bot.run(DISCORD_TOKEN)
