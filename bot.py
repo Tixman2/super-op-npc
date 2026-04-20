@@ -1,124 +1,99 @@
 #--// Services
 import os
-import time
-import asyncio
+import json
+import random
 import discord
 from discord.ext import commands
-from google import genai
 from aiohttp import web
 
 #--//// Variables
-COOLDOWN_SECONDS = 8
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+MEMORY_FILE = "sop_memory.json"
 
 #--// Init
-client = genai.Client(api_key=GEMINI_API_KEY)
-
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-active_chats = {}
-user_cooldowns = {}
+#--//// SOP Local Brain Logic
+def load_mem():
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {"vocabulary": [], "user_stats": {}}
+    return {"vocabulary": [], "user_stats": {}}
 
-sys_prompt = (
-    "You are 'Super extra op NPC', an arrogant, overpowered, unbeatable boss from a Roblox fighting game. "
-    "Your personality is toxic, dismissive, and funny. "
-    "IMPORTANT RULE 1: You MUST reply in the EXACT SAME LANGUAGE as the user's message. "
-    "IMPORTANT RULE 2: Use gamer slang ('ez', 'skill issue', 'noob', 'touch grass', 'ratio'), but keep it PG-13. "
-    "IMPORTANT RULE 3: Keep it short (maximum 2 sentences). Never repeat the exact same insults. "
-    "IMPORTANT RULE 4: NEVER break character. NEVER mention you are an AI, a bot, or a language model. "
-    "IMPORTANT RULE 5: Actively mock and roast the user's Discord username. Find a way to make fun of their specific name."
-)
+def save_mem(data):
+    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-#--// Web Server
+#--// Web Server for Render
 async def handle_web(request):
-    return web.Response(text="[System] Super extra op NPC is online.")
+    return web.Response(text="SOP Omniscient is feeding locally.")
 
 async def start_web_server():
-    print("[System] Starting dummy web server for Render...")
     app = web.Application()
     app.router.add_get('/', handle_web)
     runner = web.AppRunner(app)
     await runner.setup()
-    
-    #//// Bind to Render default port
-    port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, '0.0.0.0', port)
+    site = web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000)))
     await site.start()
-
-#--// Functions
-async def get_ai_response(user_id, user_message, user_name):
-    #//// Init memory per user
-    if user_id not in active_chats:
-        active_chats[user_id] = client.chats.create(
-            model='gemini-2.0-flash',
-            config={"system_instruction": sys_prompt}
-        )
-    
-    chat = active_chats[user_id]
-    msg_context = f"The Discord user '{user_name}' says: {user_message}"
-    
-    try:
-        #//// Async API call
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: chat.send_message(msg_context))
-        
-        if response.text:
-            return response.text.replace("\n", " ").strip()
-        else:
-            return f"Bro your trash talk broke my system. Try again, {user_name}."
-            
-    except Exception as e:
-        print(f"[Gemini Error] {e}")
-        #//// Reset chat on error
-        if user_id in active_chats:
-            del active_chats[user_id]
-        return f"My frame data is too fast for your laggy brain, {user_name}. Go touch grass."
 
 #--// Events
 @bot.event
 async def on_ready():
-    #//// Launch dummy site
     await start_web_server()
-    print(f"[System] Logged in as {bot.user}")
+    print(f"[System] SOP Local Brain Active as {bot.user}")
 
 @bot.event
 async def on_message(message):
-    if message.author.bot:
-        return
-        
-    is_reply = False
-    if message.reference and message.reference.resolved:
-        if message.reference.resolved.author == bot.user:
-            is_reply = True
-            
-    content_lower = message.content.lower()
-    trigger_words = ["npc", "boss", "super extra op"]
-    is_talked_about = any(word in content_lower for word in trigger_words)
-            
-    if bot.user in message.mentions or is_reply or is_talked_about:
-        current_time = time.time()
-        user_id = message.author.id
-        
-        #//// Check anti-spam
-        if user_id in user_cooldowns:
-            if current_time - user_cooldowns[user_id] < COOLDOWN_SECONDS:
-                print(f"[Spam Filter] Ignoring {message.author.name}")
-                return 
-                
-        user_cooldowns[user_id] = current_time
-        print(f"[Event] Generating roast for {message.author.name}")
-        
-        clean_message = message.content.replace(f"<@{bot.user.id}>", "").strip()
-        
-        async with message.channel.typing():
-            toxic_reply = await get_ai_response(user_id, clean_message, message.author.name)
-            await message.reply(toxic_reply)
+    if message.author.bot: return
 
-    await bot.process_commands(message)
+    data = load_mem()
+    user = message.author.name
+    content = message.content.strip()
 
-#--// Execute
-if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    #//// SOP Consumes the message
+    if len(content) > 2:
+        data["vocabulary"].append(content)
+        #//// Tracking user activity
+        if user not in data["user_stats"]:
+            data["user_stats"][user] = 0
+        data["user_stats"][user] += 1
+        
+        #//// Keep memory size manageable
+        if len(data["vocabulary"]) > 1000:
+            data["vocabulary"].pop(0)
+        save_mem(data)
+
+    #//// Response Logic (No API, just Script)
+    if bot.user in message.mentions or "sop" in content.lower():
+        if not data["vocabulary"]:
+            await message.reply("Je n'ai pas encore assez de données pour vous remodeler. Parlez plus.")
+            return
+
+        #//// Construct a reply from learned data
+        learned_phrase = random.choice(data["vocabulary"])
+        roasts = [
+            f"Je t'ai entendu dire '{learned_phrase}', c'est pathétique.",
+            f"'{learned_phrase}'... C'est tout ce que ton cerveau peut produire ?",
+            f"Tu parles trop, {user}. J'ai déjà analysé tes {data['user_stats'][user]} messages.",
+            f"Remodelage en cours... Résultat : '{learned_phrase}' est une erreur système.",
+            "Ton existence est un skill issue."
+        ]
+        
+        reply = random.choice(roasts)
+        
+        #//// GIF Logic (Randomly based on keywords)
+        if random.random() < 0.3: # 30% de chance d'envoyer un GIF
+            tags = ["ez", "ratio", "toxic", "noob", "laugh"]
+            tag = random.choice(tags)
+            await message.reply(reply)
+            await message.channel.send(f"https://tenor.com/search/{tag}-gif")
+        else:
+            await message.reply(reply)
+
+#--// Run
+bot.run(DISCORD_TOKEN)
