@@ -1,4 +1,3 @@
-
 #--// Services
 import os
 import json
@@ -34,14 +33,15 @@ def save_mem(data):
         json.dump(data, f, ensure_ascii=False, indent=4)
 
 def get_rank(count):
-    if count > 100: return "Anomalie Système"
-    if count > 50: return "Donnée Persistante"
-    return "Simple Noob"
+    if count > 150: return "BOSS FINAL (Anomalie)"
+    if count > 80: return "Elite Mob"
+    if count > 30: return "PNJ de base"
+    return "Noob LVL 1"
 
-#--// Web
+#--// Web Server
 async def start_web():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="SOP Genesis is watching you."))
+    app.router.add_get('/', lambda r: web.Response(text="SOP OVERLORD IS ONLINE."))
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000))).start()
@@ -50,84 +50,79 @@ async def start_web():
 @bot.event
 async def on_ready():
     await start_web()
-    print(f"--// SOP Genesis Online")
+    print(f"--// SOP OVERLORD INITIALIZED")
 
 @bot.event
 async def on_message(message):
     global last_msg_time
     if message.author.bot: return
 
-    #//// PRIORITY 1: Real Commands
+    #//// PRIORITY: Commands
     if message.content.startswith("!sop_brain"):
         data = load_mem()
-        user_data = data["users"].get(message.author.name, 0)
-        rank = get_rank(user_data)
-        stats = (f"**[SOP GENESIS CORE]**\n"
-                 f"Mode: {'Aggressif' if data['mood'] > 70 else 'Passif'}\n"
-                 f"Database: {len(data['en'])} EN / {len(data['fr'])} FR\n"
-                 f"Ton Rank: {rank} ({user_data} msgs)")
+        stats = (f"**[SOP OVERLORD STATUS]**\n"
+                 f"Mood: {'EXTRÊME' if data['mood'] > 80 else 'Condescendant'}\n"
+                 f"Data Harvested: {len(data['en'])+len(data['fr'])} strings\n"
+                 f"Player Rank: {get_rank(data['users'].get(message.author.name, 0))}")
         await message.reply(stats)
-        return
-
-    #//// Anti-Double Check
-    current_time = time.time()
-    if (bot.user in message.mentions or "sop" in message.content.lower()) and (current_time - last_msg_time < 1.0):
         return
 
     data = load_mem()
     user = message.author.name
+    content = message.content.lower()
     clean = re.sub(r'<@!?[0-9]+>', '', message.content).strip()
 
-    #//// PRIORITY 2: Feeding & Learning
+    #//// Reaction Logic (Toxic Boss Style)
+    if any(w in content for w in ["help", "aide", "please", "stp", "mort", "died"]):
+        await message.add_reaction("💀")
+    if any(w in content for w in ["noob", "nul", "bad", "ez"]):
+        await message.add_reaction("🤡")
+    if random.random() < 0.05: # Chance de réaction aléatoire méprisante
+        await message.add_reaction("🤨")
+
+    #//// Learning
     if len(clean) > 2 and not message.content.startswith("!"):
-        lang = "fr" if any(w in clean.lower().split() for w in ["le","la","est","tu","salut"]) else "en"
-        if clean not in data[lang]:
-            data[lang].append(clean)
+        # Simple detector
+        lang = "fr" if any(w in clean.lower().split() for w in ["le","la","est","tu","salut","je"]) else "en"
+        if clean not in data[lang]: data[lang].append(clean)
         data["users"][user] = data["users"].get(user, 0) + 1
         
-        # Change mood based on message length (short = boring = SOP gets angry)
-        if len(clean) < 5: data["mood"] += 2
-        else: data["mood"] -= 1
-        data["mood"] = max(0, min(100, data["mood"]))
-        
-        if len(data[lang]) > 400: data[lang].pop(0)
+        # Mood increases with short/stupid messages
+        data["mood"] = max(0, min(100, data["mood"] + (2 if len(clean) < 10 else -1)))
         save_mem(data)
 
-    #//// PRIORITY 3: Response Hybrid Logic
-    if bot.user in message.mentions or "sop" in message.content.lower():
+    #//// Global Trigger
+    if bot.user in message.mentions or "sop" in content:
+        current_time = time.time()
+        if (current_time - last_msg_time < 1.2): return
         last_msg_time = current_time
-        lang = "fr" if any(w in message.content.lower().split() for w in ["le","la","est","tu","salut"]) else "en"
-        
-        if not data[lang]:
-            await message.reply("Data stream empty. Feed me.")
+
+        lang = "fr" if any(w in content.split() for w in ["le","la","est","tu","salut"]) else "en"
+        if not data[lang]: 
+            await message.reply("No data to process your failure.")
             return
 
-        #--//// THE HYBRID REMIXER (Idée de ouf)
-        # Il prend deux phrases et les mélange
-        phrase1 = random.choice(data[lang])
-        phrase2 = random.choice(data[lang])
-        remix = f"{phrase1[:len(phrase1)//2]}...{phrase2[len(phrase2)//2:]}"
+        p1 = random.choice(data[lang])
+        p2 = random.choice(data[lang])
+        remix = f"{p1[:len(p1)//2]}...{p2[len(p2)//2:]}"
 
         if lang == "en":
             roasts = [
-                f"Remodeling your trash: '{remix}'",
-                f"My mood is {data['mood']}%. Conclusion: '{phrase1}' is mid.",
-                f"Analyzed {user}. Result: {get_rank(data['users'][user])}. Logic: '{phrase2}'"
+                f"Player {user} ({get_rank(data['users'][user])}), your skill is as low as your quote: '{remix}'",
+                f"Processing '{p1}'... result: 404 Brain Not Found.",
+                f"Imagine being a main character and saying '{p2}'. Pathetic."
             ]
         else:
             roasts = [
-                f"Remodelage de tes déchets : '{remix}'",
-                f"Mon humeur est à {data['mood']}%. Conclusion : '{phrase1}' c'est nul.",
-                f"Utilisateur {user} classé comme {get_rank(data['users'][user])}. Logique : '{phrase2}'"
+                f"Joueur {user} ({get_rank(data['users'][user])}), ton niveau est aussi bas que ta phrase : '{remix}'",
+                f"Analyse de '{p1}'... résultat : 404 Cerveau introuvable.",
+                f"Imagine être le héros et dire '{p2}'. Pitoyable."
             ]
         
         await message.reply(random.choice(roasts))
 
-        #--//// Dynamic GIFs
-        if data["mood"] > 80 or random.random() < 0.05:
-            gif = "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif"
-            await message.channel.send(gif)
+        if data["mood"] > 75:
+            await message.channel.send("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif")
 
 #--// Start
 bot.run(DISCORD_TOKEN)
-
