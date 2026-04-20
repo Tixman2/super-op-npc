@@ -53,7 +53,7 @@ async def get_ai_response(user_id, user_message, user_name):
     #//// Init memory per user
     if user_id not in active_chats:
         active_chats[user_id] = client.chats.create(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash',
             config={"system_instruction": sys_prompt}
         )
     
