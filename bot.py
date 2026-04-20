@@ -1,10 +1,11 @@
 #--// Services
-import discord
-import time
 import os
+import time
 import asyncio
-from google import genai
+import discord
 from discord.ext import commands
+from google import genai
+from aiohttp import web
 
 #--//// Variables
 COOLDOWN_SECONDS = 8
@@ -30,6 +31,22 @@ sys_prompt = (
     "IMPORTANT RULE 4: NEVER break character. NEVER mention you are an AI, a bot, or a language model. "
     "IMPORTANT RULE 5: Actively mock and roast the user's Discord username. Find a way to make fun of their specific name."
 )
+
+#--// Web Server
+async def handle_web(request):
+    return web.Response(text="[System] Super extra op NPC is online.")
+
+async def start_web_server():
+    print("[System] Starting dummy web server for Render...")
+    app = web.Application()
+    app.router.add_get('/', handle_web)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    #//// Bind to Render default port
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
 
 #--// Functions
 async def get_ai_response(user_id, user_message, user_name):
@@ -63,6 +80,8 @@ async def get_ai_response(user_id, user_message, user_name):
 #--// Events
 @bot.event
 async def on_ready():
+    #//// Launch dummy site
+    await start_web_server()
     print(f"[System] Logged in as {bot.user}")
 
 @bot.event
