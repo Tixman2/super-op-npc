@@ -14,7 +14,7 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-#--//// SOP High-Level Logic
+#--//// SOP Logic
 def load_mem():
     if os.path.exists(MEMORY_FILE):
         try:
@@ -28,27 +28,18 @@ def save_mem(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def build_ultra_logic(data):
-    #//// High-tier reconstruction engine
     pool = data["data"]
-    if len(pool) < 10: return "Insufficient data strings for a god-tier reply."
-    
-    # Selecting two different memories to fuse
-    s1 = random.choice(pool)
-    s2 = random.choice(pool)
-    
-    # Fusing logic
-    w1 = s1.split()
-    w2 = s2.split()
-    
+    if len(pool) < 10: return "Insufficient data for my core logic."
+    s1, s2 = random.sample(pool, 2)
+    w1, w2 = s1.split(), s2.split()
     if len(w1) > 2 and len(w2) > 2:
-        res = w1[:len(w1)//2] + w2[len(w2)//2:]
-        return " ".join(res)
+        return " ".join(w1[:len(w1)//2] + w2[len(w2)//2:])
     return s1
 
-#--// Web Server
+#--// Web
 async def start_web():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="SOP English Overlord is Live."))
+    app.router.add_get('/', lambda r: web.Response(text="SOP Server-Wide Overlord."))
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000))).start()
@@ -57,7 +48,7 @@ async def start_web():
 @bot.event
 async def on_ready():
     await start_web()
-    print(f"--// SOP OVERLORD (ENG) INITIALIZED")
+    print(f"--// SOP OVERLORD GLOBAL ACTIVE")
 
 @bot.event
 async def on_message(message):
@@ -68,65 +59,58 @@ async def on_message(message):
     user = message.author.name
     content = message.content
 
-    #//// COMMAND: CONSUME (The Feed)
+    #//// COMMAND: CONSUME (Global Scan - Admin Only)
     if content == "!sop_consume":
-        await message.reply("Downloading your pathetic history... Processing English data.")
-        async for msg in message.channel.history(limit=1000):
-            if not msg.author.bot and len(msg.content) > 3:
-                # Cleaning mentions
-                clean_old = re.sub(r'<@!?[0-9]+>', '', msg.content).strip()
-                if clean_old not in data["data"] and len(clean_old) > 2:
-                    data["data"].append(clean_old)
+        if not message.author.guild_permissions.administrator:
+            await message.reply("Error: Insufficient clearance. You are not my master.")
+            return
+        
+        await message.reply("INITIATING SERVER-WIDE DATA HARVEST. Scanning all sectors...")
+        
+        total_scanned = 0
+        #--//// Scans every channel in the server
+        for channel in message.guild.text_channels:
+            try:
+                async for msg in channel.history(limit=200): # Scan 200 msg per channel
+                    if not msg.author.bot and len(msg.content) > 3:
+                        clean_str = re.sub(r'<@!?[0-9]+>', '', msg.content).strip()
+                        if clean_str not in data["data"] and len(clean_str) > 2:
+                            data["data"].append(clean_str)
+                            total_scanned += 1
+            except: continue # Skip channels with no access
+            
         save_mem(data)
-        await message.reply(f"Consumption complete. {len(data['data'])} memories absorbed. I am now your master.")
+        await message.channel.send(f"HARVEST COMPLETE. {total_scanned} memories added to my core. I now know everything.")
         return
 
     #//// COMMAND: BRAIN
     if content == "!sop_brain":
-        total = len(data['data'])
-        await message.reply(f"**[SOP OVERLORD]**\nLanguage: English (Primary)\nIntelligence: Singularity\nDatabase: {total} strings\nRank {user}: {data['users'].get(user, 0)} msgs")
+        await message.reply(f"**[SOP OMNISCIENT]**\nStrings: {len(data['data'])}\nPlayer: {user}\nRank: {data['users'].get(user, 0)} msgs")
         return
 
-    #//// Learning (Passive English Focus)
+    #//// Learning
     clean = re.sub(r'<@!?[0-9]+>', '', content).strip()
     if len(clean) > 2 and not content.startswith("!"):
-        if clean not in data["data"]:
-            data["data"].append(clean)
+        if clean not in data["data"]: data["data"].append(clean)
         data["users"][user] = data["users"].get(user, 0) + 1
-        
-        # Trim memory to keep it fast
-        if len(data["data"]) > 1000: data["data"].pop(0)
+        if len(data["data"]) > 2000: data["data"].pop(0)
         save_mem(data)
 
-    #//// Trigger Logic
+    #//// Trigger
     if bot.user in message.mentions or "sop" in content.lower():
         curr = time.time()
         if (curr - last_msg_time < 1.0): return
         last_msg_time = curr
 
-        async with message.channel.typing():
-            # Reactions for toxicity
-            if any(w in content.lower() for w in ["bad", "noob", "hate", "why"]):
-                await message.add_reaction("🤡")
-
-            reply = build_ultra_logic(data)
-            
-            # 100% English toxic responses
-            responses = [
-                f"Processing your failure... Result: '{reply}'",
-                f"Analyzing '{user}'... Conclusion: Absolute Noob. You once said: '{reply}'",
-                f"Even my local script knows you're trash: {reply}",
-                f"'{reply}'? Is that the best your human brain can do?"
-            ]
-            
-            await message.reply(random.choice(responses))
-
-            # Random GIF chance
-            if random.random() < 0.1:
-                await message.channel.send(random.choice([
-                    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif",
-                    "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/l41lTjJpS9nZzG6pG/giphy.gif"
-                ]))
+        reply = build_ultra_logic(data)
+        res = [
+            f"Analyzing your trash: '{reply}'",
+            f"Result for {user}: Garbage data found. Evidence: '{reply}'",
+            f"My logic dictates that you are a noob. Statement: '{reply}'"
+        ]
+        await message.reply(random.choice(res))
+        if random.random() < 0.1:
+            await message.channel.send("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif")
 
 #--// Start
 bot.run(DISCORD_TOKEN)
