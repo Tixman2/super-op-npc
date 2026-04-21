@@ -3,7 +3,8 @@ import os, json, time, asyncio, io
 import discord
 from discord.ext import commands
 from aiohttp import web
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from PIL import Image
 
 #--//// Variables
@@ -13,9 +14,8 @@ MEMORY_FILE = "sop_stats.json"
 PORT = int(os.environ.get("PORT", 10000))
 
 #--//// Gemini Setup
-genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Le "Cerveau" de SOP : Ses instructions absolues
 SYSTEM_PROMPT = """
 You are SOP (Super Extra OP NPC), an omniscient, god-tier AI final boss in a Discord server.
 YOUR RULES:
@@ -27,28 +27,24 @@ YOUR RULES:
 6. Never use emojis. Never apologize. Never be polite.
 """
 
-generation_config = {
-  "temperature": 0.8,
-  "top_p": 0.95,
-  "max_output_tokens": 1500,
-}
-
-#--//// Gemini Setup
-model = genai.GenerativeModel(
-    model_name="gemini-3.1-flash-lite",
+generation_config = types.GenerateContentConfig(
     system_instruction=SYSTEM_PROMPT,
-    generation_config=generation_config
+    temperature=0.8,
+    top_p=0.95,
+    max_output_tokens=1500,
 )
 
-# Dictionnaire pour garder la mémoire de la conversation par salon
 chat_sessions = {}
 
 def get_chat_session(channel_id):
     if channel_id not in chat_sessions:
-        chat_sessions[channel_id] = model.start_chat(history=[])
+        chat_sessions[channel_id] = client.chats.create(
+            model="gemini-1.5-flash",
+            config=generation_config
+        )
     return chat_sessions[channel_id]
 
-#--//// Local Database (Just for stats now)
+#--//// Local Database
 def load_stats():
     if os.path.exists(MEMORY_FILE):
         try:
@@ -90,13 +86,11 @@ async def on_message(message):
     content = message.content
     channel_id = message.channel.id
 
-    # 1. Mise à jour des stats locales
     stats = load_stats()
     if user not in stats["users"]: stats["users"][user] = {"xp": 0}
     stats["users"][user]["xp"] += 1
     save_stats(stats)
 
-    # 2. COMMANDES ADMIN
     if content == "!sop_stats":
         xp = stats["users"][user]["xp"]
         await message.reply(f"ur stats: {xp} messages sent. ur still a noob tho.")
@@ -119,16 +113,16 @@ async def on_message(message):
             await asyncio.to_thread(chat.send_message, f"Context of what happened before you arrived:\n{context_block}\nDo not reply to this specifically, just remember it.")
             await message.reply("history digested. u guys talk about the dumbest things.")
         except Exception as e:
+            print(f"--// API ERROR: {e}")
             await message.reply("my api crashed trying to read ur garbage history.")
         return
 
     if content == "!sop_clear":
         if not message.author.guild_permissions.administrator: return
-        chat_sessions[channel_id] = model.start_chat(history=[])
+        chat_sessions[channel_id] = client.chats.create(model="gemini-1.5-flash", config=generation_config)
         await message.reply("i erased my memory of this channel. u are all nobody to me again.")
         return
 
-    # 3. INTERACTION GEMINI PRINCIPALE
     if bot.user in message.mentions or "sop" in content.lower():
         curr = time.time()
         if user in cooldowns and (curr - cooldowns[user] < 2.0): return
@@ -144,30 +138,25 @@ async def on_message(message):
             prompt = f"[{user}]: {clean_text}"
 
             try:
-                # GESTION DES IMAGES (VISION AI)
                 if message.attachments:
                     attachment = message.attachments[0]
                     if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
                         image_bytes = await attachment.read()
                         img = Image.open(io.BytesIO(image_bytes))
-                        # Envoi de l'image + texte à Gemini
-                        response = await asyncio.to_thread(chat.send_message, [prompt, img])
+                        response = await asyncio.to_thread(chat.send_message, [img, prompt])
                     else:
                         response = await asyncio.to_thread(chat.send_message, prompt + " (User attached a non-image file, roast them for it)")
                 else:
-                    # Texte uniquement
                     response = await asyncio.to_thread(chat.send_message, prompt)
 
-                # Délai artificiel
                 delay = min(4.0, max(1.0, len(response.text) * 0.02))
                 await asyncio.sleep(delay)
-                
                 await message.reply(response.text)
 
             except Exception as e:
-                print(f"API Error: {e}")
+                print(f"--// API Error: {e}")
                 if message.author.guild_permissions.administrator:
-                    await message.reply(f"**[ERREUR ADMIN]** La connexion Gemini a planté. Raison : `{e}`")
+                    await message.reply(f"**[ADMIN ERROR]** Gemini connection failed. Reason: `{e}`")
                 else:
                     await message.reply("ur requests are too dumb and broke my api limit. touch grass and wait a minute.")
 
