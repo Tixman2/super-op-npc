@@ -108,7 +108,7 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author.bot or message.type != discord.MessageType.default: return
+    if message.author.bot or message.type not in (discord.MessageType.default, discord.MessageType.reply): return
 
     user = message.author.name
     content = message.content
