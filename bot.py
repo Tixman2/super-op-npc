@@ -39,7 +39,7 @@ chat_sessions = {}
 def get_chat_session(channel_id):
     if channel_id not in chat_sessions:
         chat_sessions[channel_id] = client.chats.create(
-            model="gemini-1.5-flash",
+            model="gemini-3.1-flash-lite-preview",
             config=generation_config
         )
     return chat_sessions[channel_id]
