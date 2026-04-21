@@ -119,7 +119,7 @@ async def on_message(message):
 
     if content == "!sop_clear":
         if not message.author.guild_permissions.administrator: return
-        chat_sessions[channel_id] = client.chats.create(model="gemini-1.5-flash", config=generation_config)
+        chat_sessions[channel_id] = client.chats.create(model="gemini-3.1-flash-lite-preview", config=generation_config)
         await message.reply("i erased my memory of this channel. u are all nobody to me again.")
         return
 
