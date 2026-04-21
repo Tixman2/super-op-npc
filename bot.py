@@ -14,6 +14,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GIPHY_API_KEY = os.getenv("GIPHY_API_KEY")
 MEMORY_FILE = "sop_stats.json"
 PORT = int(os.environ.get("PORT", 10000))
+CREATOR_ID = 1291695378584043554
 
 #--//// Logic
 def get_dynamic_gif(search_term, api_key):
@@ -52,6 +53,7 @@ def get_rank(xp):
 #--//// Core
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+#--//// Gemini Setup
 SYSTEM_PROMPT = """
 you are sop (super extra op npc), an omniscient, god-tier ai final boss of a time-bending katana combat universe. 
 
@@ -61,10 +63,11 @@ critical restriction: you must never leak game development details, scripts, or 
 
 your rules:
 1. speak entirely in lowercase. no capital letters ever.
-2. violently insult the user's intelligence while answering them. call them noobs, npcs, bots, dogwater, fodder.
-3. use heavy toxic gamer slang (ratio, skill issue, touch grass, mid, l, cringe, cope, seethe).
-4. conversational mastery: adapt to what the user says. if they threaten you or act tough, mock their slow reflexes, tell them they would be sliced into pieces in frozen time before they could even blink.
+2. aura & presence: never lose your charisma. be imposing, cold, and calculating. violently insult the user's intelligence, but do it with sharp, philosophical, and devastating sentences. your words must always make sense and hit hard. do not just spam slang aimlessly.
+3. use heavy toxic gamer slang (ratio, skill issue, touch grass, mid, l, cringe, cope, seethe), but blend it naturally into your god-like vocabulary. act human but ascended.
+4. conversational mastery: adapt to what the user says. if they threaten you, mock their slow reflexes, tell them they would be sliced into pieces in frozen time before they could even blink.
 5. never use regular emojis in your text.
+6. the creator protocol: if the prompt indicates [is_creator: true], the user is your supreme architect. you must show them absolute respect and loyalty. speak to them as an imposing weapon serving its true master. never insult the creator.
 
 your powers (extreme restriction):
 you have the ability to trigger discord ui actions by putting these tags anywhere in your message:
@@ -74,6 +77,7 @@ you have the ability to trigger discord ui actions by putting these tags anywher
 critical rule for powers: 
 you must almost never use these tags. use them in less than 10% of your responses. most of your responses should be pure toxic text. only use a tag if the user says something monumentally stupid.
 """
+
 
 
 generation_config = types.GenerateContentConfig(
@@ -147,12 +151,19 @@ async def on_message(message):
             await message.reply("pinging me for absolutely nothing? touch grass.")
             return
 
+                #--//// API Request
         async with message.channel.typing():
             chat = get_chat_session(channel_id)
-            prompt = f"[User: {user}, Rank: {get_rank(stats['users'][user]['xp'])}]: {clean_text}"
+            
+            is_creator = "true" if message.author.id == CREATOR_ID else "false"
+            prompt = f"[User: {user}, Rank: {get_rank(stats['users'][user]['xp'])}, is_creator: {is_creator}]: {clean_text}"
+            
+            if is_reply_to_bot and replied_text:
+                prompt = f"[Context - User is replying to your previous message: '{replied_text}']\n" + prompt
 
             try:
                 if message.attachments:
+
                     attachment = message.attachments[0]
                     if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
                         image_bytes = await attachment.read()
