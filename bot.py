@@ -1,12 +1,12 @@
 #--// Services
 import os, json, random, re, time, discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from aiohttp import web
 
 #--//// Variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 MEMORY_FILE = "sop_memory.json"
-last_msg_time = 0
+cooldowns = {}
 
 #--// Init
 intents = discord.Intents.default()
@@ -14,32 +14,61 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-#--//// SOP Logic
+#--//// Logic
 def load_mem():
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except: return {"data": [], "users": {}}
-    return {"data": [], "users": {}}
+        except: return {"data": []}
+    return {"data": []}
 
 def save_mem(data):
     with open(MEMORY_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def build_ultra_logic(data):
+def get_toxic_reply(data, user):
     pool = data["data"]
-    if len(pool) < 10: return "Insufficient data for my core logic."
-    s1, s2 = random.sample(pool, 2)
-    w1, w2 = s1.split(), s2.split()
-    if len(w1) > 2 and len(w2) > 2:
-        return " ".join(w1[:len(w1)//2] + w2[len(w2)//2:])
-    return s1
+    if len(pool) < 5:
+        return "you guys are too boring. say something so I can roast you."
+    
+    quote = random.choice(pool)
+    roasts = [
+        f"bro really said '{quote}'... absolute dogwater.",
+        f"imagine typing '{quote}' and thinking you're good.",
+        f"who let {user} cook? '{quote}' is literal npc dialogue.",
+        f"nah u actually have a skill issue. '{quote}'? really?",
+        f"ur literally an npc. stop saying '{quote}'.",
+        f"go touch grass. reading '{quote}' made me lose braincells.",
+        f"can we ban {user} for saying '{quote}'? completely useless.",
+        f"bro thought he did something with '{quote}'. embarrassing."
+    ]
+    return random.choice(roasts)
+
+#--//// Tasks
+@tasks.loop(hours=1)
+async def auto_scan():
+    print("Starting background scan")
+    data = load_mem()
+    for guild in bot.guilds:
+        for channel in guild.text_channels:
+            try:
+                async for msg in channel.history(limit=100):
+                    if not msg.author.bot and len(msg.content) > 3:
+                        clean_str = re.sub(r'<@!?[0-9]+>', '', msg.content).strip()
+                        if clean_str not in data["data"]:
+                            data["data"].append(clean_str)
+            except: continue
+    
+    if len(data["data"]) > 3000:
+        data["data"] = data["data"][-3000:]
+    save_mem(data)
+    print("Background scan complete")
 
 #--// Web
 async def start_web():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="SOP Server-Wide Overlord."))
+    app.router.add_get('/', lambda r: web.Response(text="SOP Active."))
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get("PORT", 10000))).start()
@@ -48,67 +77,38 @@ async def start_web():
 @bot.event
 async def on_ready():
     await start_web()
-    print(f"--// SOP OVERLORD GLOBAL ACTIVE")
+    if not auto_scan.is_running():
+        auto_scan.start()
+    print("SOP ONLINE")
 
 @bot.event
 async def on_message(message):
-    global last_msg_time
     if message.author.bot or message.type != discord.MessageType.default: return
 
     data = load_mem()
     user = message.author.name
     content = message.content
+    user_id = message.author.id
 
-    #//// COMMAND: CONSUME (Global Scan - Admin Only)
-    if content == "!sop_consume":
-        if not message.author.guild_permissions.administrator:
-            await message.reply("Error: Insufficient clearance. You are not my master.")
-            return
-        
-        await message.reply("INITIATING SERVER-WIDE DATA HARVEST. Scanning all sectors...")
-        
-        total_scanned = 0
-        #--//// Scans every channel in the server
-        for channel in message.guild.text_channels:
-            try:
-                async for msg in channel.history(limit=200): # Scan 200 msg per channel
-                    if not msg.author.bot and len(msg.content) > 3:
-                        clean_str = re.sub(r'<@!?[0-9]+>', '', msg.content).strip()
-                        if clean_str not in data["data"] and len(clean_str) > 2:
-                            data["data"].append(clean_str)
-                            total_scanned += 1
-            except: continue # Skip channels with no access
-            
-        save_mem(data)
-        await message.channel.send(f"HARVEST COMPLETE. {total_scanned} memories added to my core. I now know everything.")
-        return
-
-    #//// COMMAND: BRAIN
-    if content == "!sop_brain":
-        await message.reply(f"**[SOP OMNISCIENT]**\nStrings: {len(data['data'])}\nPlayer: {user}\nRank: {data['users'].get(user, 0)} msgs")
-        return
-
-    #//// Learning
+    #//// Passive Learning
     clean = re.sub(r'<@!?[0-9]+>', '', content).strip()
-    if len(clean) > 2 and not content.startswith("!"):
-        if clean not in data["data"]: data["data"].append(clean)
-        data["users"][user] = data["users"].get(user, 0) + 1
-        if len(data["data"]) > 2000: data["data"].pop(0)
+    if len(clean) > 2:
+        if clean not in data["data"]:
+            data["data"].append(clean)
+        if len(data["data"]) > 3000:
+            data["data"].pop(0)
         save_mem(data)
 
     #//// Trigger
     if bot.user in message.mentions or "sop" in content.lower():
         curr = time.time()
-        if (curr - last_msg_time < 1.0): return
-        last_msg_time = curr
+        if user_id in cooldowns and (curr - cooldowns[user_id] < 3.0):
+            return
+        cooldowns[user_id] = curr
 
-        reply = build_ultra_logic(data)
-        res = [
-            f"Analyzing your trash: '{reply}'",
-            f"Result for {user}: Garbage data found. Evidence: '{reply}'",
-            f"My logic dictates that you are a noob. Statement: '{reply}'"
-        ]
-        await message.reply(random.choice(res))
+        reply = get_toxic_reply(data, user)
+        await message.reply(reply)
+
         if random.random() < 0.1:
             await message.channel.send("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif")
 
