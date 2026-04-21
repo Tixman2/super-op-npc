@@ -197,12 +197,24 @@ db = DatabaseManager()
 cooldowns = {}
 
 #--//// Response Generator
-def build_leviathan_response(user, text, profile, s_score):
+def build_leviathan_response(user, text, profile, s_score, other_mentions):
     phase = db.boss.phase
     keywords = db.nlp.get_keywords(text)
     topic = keywords[0] if keywords else "nothing"
     generated = db.markov.generate(max_words=10)
     
+    # NEW : S'il y a un autre joueur mentionné dans le message
+    if other_mentions:
+        target = other_mentions[0]
+        third_party_roasts = [
+            f"u think {target} is better? {target} is dogwater too, but at least they aren't u.",
+            f"don't drag {target} into this. u both belong in bronze.",
+            f"comparing urself to {target}? congrats, ur both at the bottom of the leaderboard.",
+            f"even {target} is laughing at ur {profile.ego_score} ego score right now.",
+            f"ur both npcs. {target} just hides it better than u."
+        ]
+        return random.choice(third_party_roasts)
+
     if s_score < -2:
         if phase == 1:
             return f"ur mad about {topic}. ur ego score is {profile.ego_score}. stop typing."
@@ -225,7 +237,7 @@ def build_leviathan_response(user, text, profile, s_score):
         f"ratio + skill issue + ur a {profile.get_rank()}."
     ]
     return random.choice(base_roasts)
-
+    
 #--//// Web Server
 async def start_web():
     app = web.Application()
