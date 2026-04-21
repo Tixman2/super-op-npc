@@ -6,6 +6,8 @@ from aiohttp import web
 from google import genai
 from google.genai import types
 from PIL import Image
+import urllib.request
+import urllib.parse
 
 #--//// Variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
