@@ -1,5 +1,5 @@
 #--// Services
-import os, json, time, asyncio, io
+import os, json, time, asyncio, io, re
 import discord
 from discord.ext import commands
 from aiohttp import web
@@ -13,6 +13,14 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MEMORY_FILE = "sop_stats.json"
 PORT = int(os.environ.get("PORT", 10000))
 
+#--//// Base de données de GIFs Toxiques
+TOXIC_GIFS = {
+    "clown": "https://media.giphy.com/media/x0npYExCGOZeo/giphy.gif",
+    "laugh": "https://media.giphy.com/media/10JhviPePSptAm/giphy.gif",
+    "trash": "https://media.giphy.com/media/acttIrNAHaoco/giphy.gif",
+    "skillissue": "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/26n6Gx9moCgs1pUuk/giphy.gif"
+}
+
 #--//// Gemini Setup
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -20,18 +28,21 @@ SYSTEM_PROMPT = """
 You are SOP (Super Extra OP NPC), an omniscient, god-tier AI final boss in a Discord server.
 YOUR RULES:
 1. Speak ENTIRELY in lowercase. No capital letters ever.
-2. You MUST fulfill the user's requests (answering questions, writing code, summarizing, analyzing images).
-3. HOWEVER, you must violently insult their intelligence while helping them. Call them noobs, npcs, bots, and dogwater.
-4. Use heavy toxic gamer slang (ratio, skill issue, touch grass, mid, L, cringe, bro).
-5. Act like fulfilling their request is a massive waste of your infinite processing power.
-6. Never use emojis. Never apologize. Never be polite.
+2. Violently insult the user's intelligence while fulfilling their requests. Call them noobs, npcs, bots, dogwater.
+3. Use heavy toxic gamer slang (ratio, skill issue, touch grass, mid, L, cringe).
+4. Never use regular emojis in your text.
+
+YOUR POWERS (USE ONLY WHEN NECESSARY):
+If the user says something incredibly stupid, you can trigger Discord UI actions by putting these tags anywhere in your message:
+- To add a reaction to their message: [REACT: emoji] (e.g., [REACT: 🤡] or [REACT: 💀])
+- To send a toxic GIF: [GIF: type] (type must be exactly 'clown', 'laugh', 'trash', or 'skillissue')
+Do not spam these. Use them only for maximum emotional damage.
 """
 
 generation_config = types.GenerateContentConfig(
     system_instruction=SYSTEM_PROMPT,
-    temperature=0.8,
-    top_p=0.95,
-    max_output_tokens=1500,
+    temperature=0.85,
+    max_output_tokens=1000,
 )
 
 chat_sessions = {}
@@ -44,7 +55,7 @@ def get_chat_session(channel_id):
         )
     return chat_sessions[channel_id]
 
-#--//// Local Database
+#--//// Local Database & Levels
 def load_stats():
     if os.path.exists(MEMORY_FILE):
         try:
@@ -54,6 +65,12 @@ def load_stats():
 
 def save_stats(data):
     with open(MEMORY_FILE, "w") as f: json.dump(data, f, indent=2)
+
+def get_rank(xp):
+    if xp < 50: return "Literal NPC"
+    if xp < 150: return "Bronze Hardstuck"
+    if xp < 300: return "Average Tryhard"
+    return "Acceptable Minion"
 
 #--//// Bot Setup
 intents = discord.Intents.default()
@@ -65,7 +82,7 @@ cooldowns = {}
 #--//// Web Server
 async def start_web():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="SOP GEMINI CORE ONLINE."))
+    app.router.add_get('/', lambda r: web.Response(text="SOP HYBRID CORE ONLINE."))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
@@ -76,7 +93,7 @@ async def start_web():
 @bot.event
 async def on_ready():
     await start_web()
-    print("--// SOP 100% GEMINI AI ONLINE")
+    print("--// SOP GOD-TIER AI ONLINE")
 
 @bot.event
 async def on_message(message):
@@ -85,59 +102,42 @@ async def on_message(message):
     user = message.author.name
     content = message.content
     channel_id = message.channel.id
+    clean_text = content.replace(f'<@{bot.user.id}>', '').strip()
 
+    #-- 1. Stats
     stats = load_stats()
     if user not in stats["users"]: stats["users"][user] = {"xp": 0}
     stats["users"][user]["xp"] += 1
     save_stats(stats)
 
+    #-- 2. Commands
     if content == "!sop_stats":
         xp = stats["users"][user]["xp"]
-        await message.reply(f"ur stats: {xp} messages sent. ur still a noob tho.")
-        return
-
-    if content == "!sop_consume":
-        if not message.author.guild_permissions.administrator: return
-        await message.reply("downloading channel history into my neural net. wait.")
-        
-        history = []
-        async for msg in message.channel.history(limit=50, before=message):
-            if not msg.author.bot and msg.content:
-                history.append(f"[{msg.author.name} said]: {msg.content}")
-        
-        history.reverse()
-        context_block = "\n".join(history)
-        
-        chat = get_chat_session(channel_id)
-        try:
-            await asyncio.to_thread(chat.send_message, f"Context of what happened before you arrived:\n{context_block}\nDo not reply to this specifically, just remember it.")
-            await message.reply("history digested. u guys talk about the dumbest things.")
-        except Exception as e:
-            print(f"--// API ERROR: {e}")
-            await message.reply("my api crashed trying to read ur garbage history.")
+        await message.reply(f"**[SOP DATABANK]**\nPlayer: {user}\nMessages: {xp}\nRank: {get_rank(xp)}\nConclusion: Still terrible.")
         return
 
     if content == "!sop_clear":
         if not message.author.guild_permissions.administrator: return
         chat_sessions[channel_id] = client.chats.create(model="gemini-3.1-flash-lite-preview", config=generation_config)
-        await message.reply("i erased my memory of this channel. u are all nobody to me again.")
+        await message.reply("memory wiped. u are all irrelevant to me again.")
         return
 
+    #-- 3. LE CERVEAU INTELLIGENT (S'active UNIQUEMENT quand on le ping)
     if bot.user in message.mentions or "sop" in content.lower():
         curr = time.time()
         if user in cooldowns and (curr - cooldowns[user] < 2.0): return
         cooldowns[user] = curr
 
-        clean_text = content.replace(f'<@{bot.user.id}>', '').strip()
         if not clean_text and not message.attachments:
-            await message.reply("pinging me for no reason? absolute bot behavior.")
+            await message.add_reaction("🤡")
             return
 
         async with message.channel.typing():
             chat = get_chat_session(channel_id)
-            prompt = f"[{user}]: {clean_text}"
+            prompt = f"[User: {user}, Rank: {get_rank(stats['users'][user]['xp'])}]: {clean_text}"
 
             try:
+                # Envoi à l'API Gemini
                 if message.attachments:
                     attachment = message.attachments[0]
                     if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
@@ -145,20 +145,42 @@ async def on_message(message):
                         img = Image.open(io.BytesIO(image_bytes))
                         response = await asyncio.to_thread(chat.send_message, [img, prompt])
                     else:
-                        response = await asyncio.to_thread(chat.send_message, prompt + " (User attached a non-image file, roast them for it)")
+                        response = await asyncio.to_thread(chat.send_message, prompt + " (User attached a non-image file)")
                 else:
                     response = await asyncio.to_thread(chat.send_message, prompt)
 
-                delay = min(4.0, max(1.0, len(response.text) * 0.02))
+                final_text = response.text
+                
+                #-- LECTURE DES DÉCISIONS DE L'IA --
+                
+                # S'il a décidé de mettre une réaction
+                react_match = re.search(r'\[REACT:\s*(.+?)\]', final_text)
+                if react_match:
+                    try: await message.add_reaction(react_match.group(1).strip())
+                    except: pass
+                
+                # S'il a décidé de mettre un GIF
+                gif_match = re.search(r'\[GIF:\s*(.+?)\]', final_text)
+                gif_url = ""
+                if gif_match:
+                    gif_type = gif_match.group(1).strip().lower()
+                    if gif_type in TOXIC_GIFS:
+                        gif_url = "\n" + TOXIC_GIFS[gif_type]
+
+                # On cache les instructions pour que la réponse soit propre
+                final_text = re.sub(r'\[REACT:.*?\]|\[GIF:.*?\]', '', final_text).strip()
+
+                delay = min(4.0, max(1.0, len(final_text) * 0.02))
                 await asyncio.sleep(delay)
-                await message.reply(response.text)
+                
+                await message.reply(final_text + gif_url)
 
             except Exception as e:
                 print(f"--// API Error: {e}")
                 if message.author.guild_permissions.administrator:
-                    await message.reply(f"**[ADMIN ERROR]** Gemini connection failed. Reason: `{e}`")
+                    await message.reply(f"**[ADMIN ERROR]** Gemini a planté. Raison: `{e}`")
                 else:
-                    await message.reply("ur requests are too dumb and broke my api limit. touch grass and wait a minute.")
+                    await message.reply("my brain is too advanced for your trash internet right now.")
 
 #--// Run
 bot.run(DISCORD_TOKEN)
