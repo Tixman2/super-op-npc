@@ -80,7 +80,8 @@ class AdvancedMarkovChain:
 
 class SentimentEngine:
     def __init__(self):
-        self.toxics = {"trash": -3, "bad": -2, "noob": -3, "stupid": -2, "idiot": -2, "hate": -2, "bot": -1, "quit": -2, "skill": -1, "issue": -2}
+        #--// Expanded vocabulary
+        self.toxics = {"trash": -3, "bad": -2, "noob": -3, "stupid": -2, "idiot": -2, "hate": -2, "bot": -2, "quit": -2, "skill": -2, "issue": -2, "mad": -3, "dumb": -2, "cringe": -3, "ez": -3, "l": -2, "shut": -2}
         self.praises = {"good": 1, "pro": 2, "god": 2, "nice": 1, "win": 2}
 
     def evaluate(self, text):
@@ -90,6 +91,15 @@ class SentimentEngine:
             if w in self.toxics: score += self.toxics[w]
             if w in self.praises: score += self.praises[w]
         return score
+
+#--//// Utilities
+def is_gibberish(text):
+    clean = re.sub(r'[^a-zA-Z]', '', text)
+    if not clean: return False
+    vowels = sum(1 for char in clean.lower() if char in 'aeiouy')
+    if vowels == 0 and len(clean) > 4: return True
+    if len(clean) > 10 and vowels / len(clean) < 0.15: return True
+    return False
 
 #--//// Game State & Database
 class BossState:
@@ -199,41 +209,63 @@ cooldowns = {}
 #--//// Response Generator
 def build_leviathan_response(user, text, profile, s_score, other_mentions):
     phase = db.boss.phase
-    keywords = db.nlp.get_keywords(text)
-    topic = keywords[0] if keywords else "nothing"
-    generated = db.markov.generate(max_words=10)
+    words_list = text.split()
     
-    # NEW : S'il y a un autre joueur mentionné dans le message
+    #--// 1. Gibberish check
+    if is_gibberish(text):
+        roasts = [
+            "bro had a stroke on his keyboard.",
+            "type actual english instead of mashing buttons.",
+            "did u fall asleep on ur desk?",
+            f"ur brain is lagging {user}. reboot it."
+        ]
+        return random.choice(roasts)
+
+    #--// 2. Third party check
     if other_mentions:
         target = other_mentions[0]
-        third_party_roasts = [
-            f"u think {target} is better? {target} is dogwater too, but at least they aren't u.",
+        roasts = [
+            f"u think {target} is better? {target} is dogwater too.",
             f"don't drag {target} into this. u both belong in bronze.",
-            f"comparing urself to {target}? congrats, ur both at the bottom of the leaderboard.",
-            f"even {target} is laughing at ur {profile.ego_score} ego score right now.",
-            f"ur both npcs. {target} just hides it better than u."
+            f"comparing urself to {target}? congrats, ur both at the bottom."
         ]
-        return random.choice(third_party_roasts)
+        return random.choice(roasts)
 
-    if s_score < -2:
-        if phase == 1:
-            return f"ur mad about {topic}. ur ego score is {profile.ego_score}. stop typing."
-        elif phase == 2:
-            return f"u have {profile.toxicity_level} toxicity points. ur literally the worst player here."
-        else:
-            return f"SYSTEM OVERRIDE. {user} IS GARBAGE. NOOB RANK CONFIRMED."
+    #--// 3. Short message check
+    if len(words_list) <= 2:
+        roasts = [
+            "type a full sentence bro. ur boring.",
+            f"wow, '{text}'. incredible vocabulary.",
+            "is that all u have to say?",
+            "im losing braincells talking to u."
+        ]
+        return random.choice(roasts)
 
-    if "why" in text.lower() or "how" in text.lower():
-        return f"im a phase {phase} boss and u want me to explain {topic} to a {profile.get_rank()}? figure it out."
+    #--// 4. Hostile check
+    if s_score < 0:
+        roasts = [
+            f"stay mad. ur ego score is dropping to {profile.ego_score}.",
+            f"crying over the game? u have {profile.toxicity_level} toxicity points.",
+            "keep projecting. it wont make u better.",
+            "bro is actually fuming right now."
+        ]
+        return random.choice(roasts)
 
-    if generated and random.random() < 0.3:
-        return f"i read ur chat logs. u sound like: '{generated}'. absolute bot behavior."
+    #--// 5. Question check
+    if "why" in text.lower() or "how" in text.lower() or "?" in text:
+        return f"im a phase {phase} boss and u want me to answer that? figure it out."
+
+    #--// 6. Markov / TF-IDF check
+    keywords = db.nlp.get_keywords(text)
+    topic = keywords[0] if keywords else "nothing"
+    generated = db.markov.generate(max_words=8)
+
+    if generated and random.random() < 0.4:
+        return f"i read ur logs. u sound like: '{generated}'. absolute npc."
 
     base_roasts = [
-        f"ur stats are dropping every time u mention {topic}.",
-        f"i have analyzed {db.nlp.total_documents} messages and ur still the worst player here.",
-        f"did u really think typing that was a good idea?",
-        f"ur ego is at {profile.ego_score}. u have no right to speak.",
+        f"every time u talk about {topic}, i realize how bad u are.",
+        f"i have processed {db.nlp.total_documents} strings and ur still the worst player here.",
         f"ratio + skill issue + ur a {profile.get_rank()}."
     ]
     return random.choice(base_roasts)
