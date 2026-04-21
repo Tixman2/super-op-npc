@@ -1,18 +1,12 @@
 #--// Services
-import os
-import json
-import random
-import re
-import time
-import asyncio
-import discord
+import os, json, random, re, time, asyncio, discord
 from discord.ext import commands, tasks
 
 #--//// Variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 MEMORY_FILE = "sop_neural_core.json"
 
-#--// NLP Engine
+#--// Engine
 class LocalNLP:
     def __init__(self):
         self.stop_words = ["the", "is", "at", "which", "on", "a", "an", "and", "of", "to", "in", "for", "it", "that", "this"]
@@ -46,7 +40,7 @@ class LocalNLP:
                 break
         return " ".join(res)
 
-#--// Memory Core
+#--// Memory
 class SOPMemory:
     def __init__(self, filepath):
         self.filepath = filepath
@@ -88,8 +82,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 nlp = LocalNLP()
 brain = SOPMemory(MEMORY_FILE)
 cooldowns = {}
+processed_msgs = []
 
-#--// AI Generation Logic
+#--//// Logic
 def build_ai_response(user, content):
     intent = nlp.get_intent(content)
     keywords = nlp.extract_keywords(content)
@@ -153,15 +148,19 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot or message.type != discord.MessageType.default: return
 
+    if message.id in processed_msgs: return
+    processed_msgs.append(message.id)
+    if len(processed_msgs) > 100: processed_msgs.pop(0)
+
     user = message.author.name
     content = message.content
     user_id = message.author.id
 
-    #//// Data Ingestion
-    if len(content) > 2 and not content.startswith("!"):
-        brain.ingest(user, content, nlp)
+    clean_text = re.sub(r'<@!?[0-9]+>', '', content).strip()
 
-    #//// Feature: AI Deep Scan Command
+    if len(clean_text) > 2 and not content.startswith("!"):
+        brain.ingest(user, clean_text, nlp)
+
     if content.lower().startswith("!sop_analyze"):
         target = user
         if message.mentions: target = message.mentions[0].name
@@ -175,16 +174,20 @@ async def on_message(message):
         await message.reply(report)
         return
 
-    #//// Main AI Trigger
     if bot.user in message.mentions or "sop" in content.lower():
+        if clean_text == "" or clean_text.lower() == "sop":
+            await message.add_reaction("\U0001F921")
+            return
+
         curr = time.time()
         if user_id in cooldowns and (curr - cooldowns[user_id] < 2.5): return
         cooldowns[user_id] = curr
 
         async with message.channel.typing():
             await asyncio.sleep(random.uniform(1.2, 2.5))
-            reply = build_ai_response(user, content)
+            reply = build_ai_response(user, clean_text)
             await message.reply(reply)
 
 #--// Run
 bot.run(DISCORD_TOKEN)
+
