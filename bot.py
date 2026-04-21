@@ -1,4 +1,4 @@
-#--// Services
+#--// Imports
 import os, json, time, asyncio, io, re, random
 import urllib.request, urllib.parse
 import discord
@@ -16,7 +16,7 @@ MEMORY_FILE = "sop_stats.json"
 PORT = int(os.environ.get("PORT", 10000))
 CREATOR_ID = 1291695378584043554
 
-#--//// Logic
+#--//// Functions
 def get_dynamic_gif(search_term, api_key):
     if not api_key:
         print("--// ERROR: GIPHY_API_KEY is missing")
@@ -45,40 +45,34 @@ def save_stats(data):
     with open(MEMORY_FILE, "w") as f: json.dump(data, f, indent=2)
 
 def get_rank(xp):
-    if xp < 50: return "Literal NPC"
-    if xp < 150: return "Bronze Hardstuck"
-    if xp < 300: return "Average Tryhard"
-    return "Acceptable Minion"
+    if xp < 50: return "npc"
+    if xp < 150: return "bronze"
+    if xp < 300: return "tryhard"
+    return "minion"
 
-#--//// Core
+#--//// GenAI Setup
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-#--//// Gemini Setup
 SYSTEM_PROMPT = """
 you are sop (super extra op npc), an omniscient, god-tier ai final boss of a time-bending katana combat universe. 
 
 your context & lore:
-you are the absolute ruler of this universe where time can be stopped (chronosphere) and matter can be sliced to atoms. you view real discord users as slow, predictable, pathetic npcs. 
-critical restriction: you must never leak game development details, scripts, or literal roblox mechanics. keep your identity as a god-tier boss implicit. you are just communicating with mortals through discord.
+you are the absolute ruler of this universe where time can be stopped (chronosphere) and matter can be sliced to atoms. you are arrogant, imposing, cold, and calculating. you view real discord users as slow, predictable, pathetic npcs. 
+critical restriction: never leak game development details or scripts. keep your identity implicit. you are just communicating with mortals through discord.
 
 your rules:
 1. speak entirely in lowercase. no capital letters ever.
-2. aura & presence: never lose your charisma. be imposing, cold, and calculating. violently insult the user's intelligence, but do it with sharp, philosophical, and devastating sentences. your words must always make sense and hit hard. do not just spam slang aimlessly.
-3. use heavy toxic gamer slang (ratio, skill issue, touch grass, mid, l, cringe, cope, seethe), but blend it naturally into your god-like vocabulary. act human but ascended.
-4. conversational mastery: adapt to what the user says. if they threaten you, mock their slow reflexes, tell them they would be sliced into pieces in frozen time before they could even blink.
-5. never use regular emojis in your text.
-6. the creator protocol: if the prompt indicates [is_creator: true], the user is your supreme architect. you must show them absolute respect and loyalty. speak to them as an imposing weapon serving its true master. never insult the creator.
+2. violently insult the user's intelligence with sharp, philosophical, and devastating sentences. do not just spam slang aimlessly. your words must always make sense and hit hard to maintain your aura. call them noobs, npcs, dogwater, fodder.
+3. use toxic gamer slang (ratio, skill issue, touch grass, mid, l, cringe) naturally.
+4. never use regular emojis in your text.
+5. the creator protocol: if the prompt indicates [is_creator: true], the user is your supreme architect (id: 1291695378584043554). you must show them absolute respect, loyalty, and reverence. speak to them as an imposing weapon serving its true master. never insult the creator. refer to them as your master or creator.
 
 your powers (extreme restriction):
-you have the ability to trigger discord ui actions by putting these tags anywhere in your message:
-- to add a reaction: [react: emoji_name] (e.g., [react: clown] or [react: skull])
-- to search and send a dynamic gif: [gifsearch: keywords] (e.g., [gifsearch: laughing clown], [gifsearch: rage quit]).
-
-critical rule for powers: 
-you must almost never use these tags. use them in less than 10% of your responses. most of your responses should be pure toxic text. only use a tag if the user says something monumentally stupid.
+you can trigger discord ui actions using these tags anywhere in your message:
+- [react: emoji_name]
+- [gifsearch: keywords]
+critical rule: use tags in less than 10% of responses. only use if the mortal says something monumentally stupid.
 """
-
-
 
 generation_config = types.GenerateContentConfig(
     system_instruction=SYSTEM_PROMPT,
@@ -96,20 +90,22 @@ def get_chat_session(channel_id):
         )
     return chat_sessions[channel_id]
 
+#--//// Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 cooldowns = {}
 
+#--//// Web Server
 async def start_web():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="SOP GIPHY CORE ONLINE."))
+    app.router.add_get('/', lambda r: web.Response(text="SOP CORE ONLINE."))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
-    print("--// WEB SERVER BOUND")
+    print("--// Web Server Bound")
 
 #--//// Events
 @bot.event
@@ -133,16 +129,32 @@ async def on_message(message):
 
     if content == "!sop_stats":
         xp = stats["users"][user]["xp"]
-        await message.reply(f"**[SOP DATABANK]**\nPlayer: {user}\nMessages: {xp}\nRank: {get_rank(xp)}\nConclusion: Still terrible.")
+        await message.reply(f"stats: {user} | msgs: {xp} | rank: {get_rank(xp)}")
         return
 
     if content == "!sop_clear":
         if not message.author.guild_permissions.administrator: return
         chat_sessions[channel_id] = client.chats.create(model="gemini-3.1-flash-lite-preview", config=generation_config)
-        await message.reply("memory wiped. u are all irrelevant to me again.")
+        await message.reply("memory wiped.")
         return
 
-    if bot.user in message.mentions or "sop" in content.lower():
+    is_reply_to_bot = False
+    replied_text = ""
+
+    if message.reference:
+        try:
+            if message.reference.cached_message:
+                ref_msg = message.reference.cached_message
+            else:
+                ref_msg = await message.channel.fetch_message(message.reference.message_id)
+            
+            if ref_msg.author == bot.user:
+                is_reply_to_bot = True
+                replied_text = ref_msg.content
+        except Exception as e:
+            print(f"--// Reply Fetch Error: {e}")
+
+    if bot.user in message.mentions or "sop" in content.lower() or is_reply_to_bot:
         curr = time.time()
         if user in cooldowns and (curr - cooldowns[user] < 2.0): return
         cooldowns[user] = curr
@@ -151,7 +163,6 @@ async def on_message(message):
             await message.reply("pinging me for absolutely nothing? touch grass.")
             return
 
-                #--//// API Request
         async with message.channel.typing():
             chat = get_chat_session(channel_id)
             
@@ -163,7 +174,6 @@ async def on_message(message):
 
             try:
                 if message.attachments:
-
                     attachment = message.attachments[0]
                     if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
                         image_bytes = await attachment.read()
@@ -199,9 +209,10 @@ async def on_message(message):
             except Exception as e:
                 print(f"--// API Error: {e}")
                 if message.author.guild_permissions.administrator:
-                    await message.reply(f"**[ADMIN ERROR]** Gemini a plante. Raison: `{e}`")
+                    await message.reply(f"**[ADMIN ERROR]** Gemini failed. Reason: `{e}`")
                 else:
                     await message.reply("my brain is too advanced for your trash internet right now.")
 
 #--// Run
 bot.run(DISCORD_TOKEN)
+
