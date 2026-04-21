@@ -317,12 +317,15 @@ async def on_message(message):
             if not data: return
             profile, s_score = data[0], data[1]
             
-            # WPM Calculation for human-like typing delay
+            #//// Extracting other mentions
+            other_mentions = [m.name for m in message.mentions if m != bot.user]
+            
             words = len(clean_text.split())
             delay = min(4.0, max(1.5, words * 0.15))
             await asyncio.sleep(delay)
             
-            response = build_leviathan_response(user, clean_text, profile, s_score)
+            #//// Fixed function call with all 5 arguments
+            response = build_leviathan_response(user, clean_text, profile, s_score, other_mentions)
             await message.reply(response.lower())
 
 #--// Run
