@@ -33,9 +33,9 @@ generation_config = {
   "max_output_tokens": 1500,
 }
 
-# Initialisation du modèle
+#--//// Gemini Setup
 model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-3.1-flash-lite",
     system_instruction=SYSTEM_PROMPT,
     generation_config=generation_config
 )
