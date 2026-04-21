@@ -166,7 +166,10 @@ async def on_message(message):
 
             except Exception as e:
                 print(f"API Error: {e}")
-                await message.reply("ur requests are too dumb and broke my api limit. touch grass and wait a minute.")
+                if message.author.guild_permissions.administrator:
+                    await message.reply(f"**[ERREUR ADMIN]** La connexion Gemini a planté. Raison : `{e}`")
+                else:
+                    await message.reply("ur requests are too dumb and broke my api limit. touch grass and wait a minute.")
 
 #--// Run
 bot.run(DISCORD_TOKEN)
