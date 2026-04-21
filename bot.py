@@ -1,5 +1,5 @@
 #--// Services
-import os, json, random, re, time, discord
+import os, json, random, re, time, asyncio, discord
 from discord.ext import commands, tasks
 from aiohttp import web
 
@@ -20,28 +20,56 @@ def load_mem():
         try:
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except: return {"data": []}
-    return {"data": []}
+        except: return {"data": [], "nemesis": "", "stats": {}}
+    return {"data": [], "nemesis": "", "stats": {}}
 
 def save_mem(data):
     with open(MEMORY_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def get_toxic_reply(data, user):
-    pool = data["data"]
-    if len(pool) < 5:
-        return "you guys are too boring. say something so I can roast you."
+def gen_markov(data_list):
+    #//// Creates fake sentences using server vocabulary
+    if len(data_list) < 10: return None
+    words = []
+    for sentence in data_list[-200:]:
+        words.extend(sentence.split())
+    if len(words) < 5: return None
     
-    quote = random.choice(pool)
+    start_word = random.choice(words)
+    res = [start_word]
+    for _ in range(random.randint(3, 8)):
+        try:
+            idx = words.index(res[-1])
+            if idx + 1 < len(words):
+                res.append(words[idx + 1])
+            else:
+                res.append(random.choice(words))
+        except:
+            res.append(random.choice(words))
+    return " ".join(res)
+
+def get_smart_reply(data, user, content):
+    low_content = content.lower()
+    
+    #//// Contextual analysis
+    if "?" in low_content:
+        return f"why u asking me '{content}'? figure it out urself."
+    if "sorry" in low_content or "my bad" in low_content:
+        return "apology rejected. uninstall the game."
+    if "lol" in low_content or "lmao" in low_content:
+        return "nothing is funny here. ur stats are a joke tho."
+        
+    generated = gen_markov(data["data"])
+    pool = data["data"]
+    quote = random.choice(pool) if pool else "trash"
+    
     roasts = [
-        f"bro really said '{quote}'... absolute dogwater.",
-        f"imagine typing '{quote}' and thinking you're good.",
-        f"who let {user} cook? '{quote}' is literal npc dialogue.",
-        f"nah u actually have a skill issue. '{quote}'? really?",
-        f"ur literally an npc. stop saying '{quote}'.",
-        f"go touch grass. reading '{quote}' made me lose braincells.",
-        f"can we ban {user} for saying '{quote}'? completely useless.",
-        f"bro thought he did something with '{quote}'. embarrassing."
+        f"bro really thinks he is him. u literally said '{quote}'.",
+        f"ur brain works like this: '{generated}'. absolute bot.",
+        f"i analyzed ur chat history. u talk like '{generated}'. pathetic.",
+        f"can everyone report {user} for saying '{quote}'?",
+        f"skill issue. go back to the tutorial.",
+        f"stop typing. every time u speak u sound like '{generated}'."
     ]
     return random.choice(roasts)
 
@@ -90,6 +118,13 @@ async def on_message(message):
     content = message.content
     user_id = message.author.id
 
+    #//// Stats & Nemesis tracker
+    if user not in data["stats"]: data["stats"][user] = 0
+    data["stats"][user] += 1
+    
+    nemesis = max(data["stats"], key=data["stats"].get)
+    data["nemesis"] = nemesis
+
     #//// Passive Learning
     clean = re.sub(r'<@!?[0-9]+>', '', content).strip()
     if len(clean) > 2:
@@ -106,11 +141,17 @@ async def on_message(message):
             return
         cooldowns[user_id] = curr
 
-        reply = get_toxic_reply(data, user)
-        await message.reply(reply)
+        async with message.channel.typing():
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+            
+            reply = get_smart_reply(data, user, content)
+            if user == data["nemesis"] and random.random() < 0.3:
+                reply = f"oh look, it's my biggest fan {user}. " + reply
 
-        if random.random() < 0.1:
-            await message.channel.send("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif")
+            await message.reply(reply)
+
+            if random.random() < 0.05:
+                await message.channel.send("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndm80Z3R6Z3R6Z3R6/3o7TKVUn7iM8FMEU24/giphy.gif")
 
 #--// Start
 bot.run(DISCORD_TOKEN)
