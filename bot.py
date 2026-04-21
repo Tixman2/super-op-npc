@@ -158,16 +158,20 @@ async def on_message(message):
                     try: await message.add_reaction(react_match.group(1).strip())
                     except: pass
                 
-                # S'il a décidé de mettre un GIF
-                gif_match = re.search(r'\[GIF:\s*(.+?)\]', final_text)
+                #--//// Parsing
+                react_match = re.search(r'\[react:\s*(.+?)\]', final_text, re.IGNORECASE)
+                if react_match:
+                    try: await message.add_reaction(react_match.group(1).strip())
+                    except: pass
+                
+                gif_match = re.search(r'\[gif:\s*(.+?)\]', final_text, re.IGNORECASE)
                 gif_url = ""
                 if gif_match:
                     gif_type = gif_match.group(1).strip().lower()
                     if gif_type in TOXIC_GIFS:
                         gif_url = "\n" + TOXIC_GIFS[gif_type]
 
-                # On cache les instructions pour que la réponse soit propre
-                final_text = re.sub(r'\[REACT:.*?\]|\[GIF:.*?\]', '', final_text).strip()
+                final_text = re.sub(r'\[react:.*?\]|\[gif:.*?\]', '', final_text, flags=re.IGNORECASE).strip()
 
                 delay = min(4.0, max(1.0, len(final_text) * 0.02))
                 await asyncio.sleep(delay)
