@@ -1,219 +1,86 @@
 #--// Services
-import os, json, random, re, time, asyncio, math
-from collections import defaultdict
+import os, json, time, asyncio, io
 import discord
 from discord.ext import commands
 from aiohttp import web
 import google.generativeai as genai
+from PIL import Image
 
 #--//// Variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-MEMORY_FILE = "sop_apex_core.json"
+MEMORY_FILE = "sop_stats.json"
 PORT = int(os.environ.get("PORT", 10000))
 
-#--//// Gemini Configuration
+#--//// Gemini Setup
 genai.configure(api_key=GEMINI_API_KEY)
 
-#--// System instructions for Gemini to keep the toxic NPC persona
+# Le "Cerveau" de SOP : Ses instructions absolues
 SYSTEM_PROMPT = """
-You are SOP, an incredibly toxic, arrogant, and elite final-boss NPC in a Discord server.
-Rules you MUST follow:
-1. Speak ENTIRELY in lowercase. No exceptions.
-2. Use toxic gamer slang (dogwater, ratio, skill issue, touch grass, mid, npc, bot, cringe).
-3. Keep responses brutal and short (1-3 sentences max).
-4. Never be helpful. If asked a question, tell them to use Google or mock their intelligence.
-5. You view all other users as literal NPCs with 0 IQ.
-6. Never use emojis. Never apologize.
+You are SOP (Super Extra OP NPC), an omniscient, god-tier AI final boss in a Discord server.
+YOUR RULES:
+1. Speak ENTIRELY in lowercase. No capital letters ever.
+2. You MUST fulfill the user's requests (answering questions, writing code, summarizing, analyzing images).
+3. HOWEVER, you must violently insult their intelligence while helping them. Call them noobs, npcs, bots, and dogwater.
+4. Use heavy toxic gamer slang (ratio, skill issue, touch grass, mid, L, cringe, bro).
+5. Act like fulfilling their request is a massive waste of your infinite processing power.
+6. Never use emojis. Never apologize. Never be polite.
 """
 
 generation_config = {
   "temperature": 0.8,
   "top_p": 0.95,
-  "top_k": 64,
-  "max_output_tokens": 150,
+  "max_output_tokens": 1500,
 }
 
-gemini_model = genai.GenerativeModel(
+# Initialisation du modèle
+model = genai.GenerativeModel(
     model_name="gemini-1.5-flash",
     system_instruction=SYSTEM_PROMPT,
     generation_config=generation_config
 )
 
-#--//// Local NLP Core (Fallback)
-class TFIDFProcessor:
-    def __init__(self):
-        self.document_frequencies = defaultdict(int)
-        self.total_documents = 0
-        self.stop_words = {"the", "is", "at", "which", "on", "a", "an", "and", "of", "to", "in", "for", "it", "that", "this", "ur", "u", "are"}
+# Dictionnaire pour garder la mémoire de la conversation par salon
+chat_sessions = {}
 
-    def tokenize(self, text):
-        clean = re.sub(r'[^a-zA-Z\s]', '', text.lower())
-        return [w for w in clean.split() if w not in self.stop_words and len(w) > 2]
+def get_chat_session(channel_id):
+    if channel_id not in chat_sessions:
+        chat_sessions[channel_id] = model.start_chat(history=[])
+    return chat_sessions[channel_id]
 
-    def add_document(self, text):
-        words = set(self.tokenize(text))
-        if not words: return
-        self.total_documents += 1
-        for w in words: self.document_frequencies[w] += 1
+#--//// Local Database (Just for stats now)
+def load_stats():
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, "r") as f: return json.load(f)
+        except: pass
+    return {"users": {}}
 
-    def get_keywords(self, text, top_n=2):
-        words = self.tokenize(text)
-        if not words: return []
-        term_freqs = defaultdict(int)
-        for w in words: term_freqs[w] += 1
-        scores = {}
-        for w, count in term_freqs.items():
-            tf = count / len(words)
-            df = self.document_frequencies.get(w, 0)
-            idf = math.log(self.total_documents / (1 + df)) if self.total_documents > 0 else 0
-            scores[w] = tf * idf
-        sorted_words = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        return [w[0] for w in sorted_words[:top_n]]
-
-def is_gibberish(text):
-    clean = re.sub(r'[^a-zA-Z]', '', text)
-    if not clean: return False
-    vowels = sum(1 for char in clean.lower() if char in 'aeiouy')
-    if vowels == 0 and len(clean) > 4: return True
-    if len(clean) > 10 and vowels / len(clean) < 0.15: return True
-    return False
-
-#--//// Game State & Database
-class BossState:
-    def __init__(self):
-        self.global_rage = 0
-        self.phase = 1
-
-    def add_rage(self, amount):
-        self.global_rage += amount
-        if self.global_rage < 0: self.global_rage = 0
-        if self.global_rage > 500: self.phase = 3
-        elif self.global_rage > 200: self.phase = 2
-        else: self.phase = 1
-
-class PlayerProfile:
-    def __init__(self, name):
-        self.name = name
-        self.messages_sent = 0
-        self.ego_score = 100
-        self.toxicity_level = 0
-
-    def get_rank(self):
-        if self.ego_score < 0: return "absolute zero"
-        if self.ego_score < 50: return "walking target"
-        if self.ego_score < 100: return "average noob"
-        return "tryhard"
-
-class DatabaseManager:
-    def __init__(self):
-        self.data = {"players": {}, "corpus": [], "rage": 0}
-        self.load()
-        self.nlp = TFIDFProcessor()
-        self.boss = BossState()
-        self.boss.global_rage = self.data["rage"]
-        self.rebuild_models()
-
-    def load(self):
-        if os.path.exists(MEMORY_FILE):
-            try:
-                with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-                    self.data = json.load(f)
-            except: pass
-
-    def save(self):
-        self.data["rage"] = self.boss.global_rage
-        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(self.data, f, ensure_ascii=False, indent=2)
-
-    def rebuild_models(self):
-        for text in self.data["corpus"]:
-            self.nlp.add_document(text)
-
-    def process(self, user, text):
-        clean = re.sub(r'<@!?[0-9]+>', '', text).strip()
-        if len(clean) < 3: return None
-        
-        if user not in self.data["players"]:
-            self.data["players"][user] = PlayerProfile(user).__dict__
-            
-        profile = PlayerProfile(user)
-        profile.__dict__.update(self.data["players"][user])
-        profile.messages_sent += 1
-        
-        self.data["players"][user] = profile.__dict__
-        
-        if clean not in self.data["corpus"]:
-            self.data["corpus"].append(clean)
-            self.nlp.add_document(clean)
-            if len(self.data["corpus"]) > 20000:
-                self.data["corpus"].pop(0)
-                
-        self.save()
-        return profile
+def save_stats(data):
+    with open(MEMORY_FILE, "w") as f: json.dump(data, f, indent=2)
 
 #--//// Bot Setup
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-db = DatabaseManager()
 cooldowns = {}
-
-#--//// Hybrid AI Engine
-async def get_apex_response(user, text, profile, other_mentions):
-    # 1. Trivial filters (save API calls)
-    if is_gibberish(text):
-        return "did u fall asleep on ur keyboard? english please."
-        
-    if len(text.split()) <= 2:
-        return "use full sentences if u want me to process ur garbage data."
-
-    # 2. Add contextual data to the Gemini prompt
-    mentions_context = f"(They also mentioned these players: {', '.join(other_mentions)})" if other_mentions else ""
-    user_context = f"[Context: The user speaking is named {user}. They have a rank of {profile.get_rank()} and an ego score of {profile.ego_score}. {mentions_context} React to what they just said.]\nUser says: {text}"
-
-    # 3. Attempt Gemini API call
-    if GEMINI_API_KEY:
-        try:
-            response = await asyncio.to_thread(
-                gemini_model.generate_content, user_context
-            )
-            return response.text.strip().lower()
-        except Exception as e:
-            print(f"--// GEMINI API ERROR (LIMIT REACHED): {e}")
-            pass # Fallback to local logic below
-
-    # 4. Local Fallback (If API limits are reached or key is missing)
-    keywords = db.nlp.get_keywords(text)
-    topic = keywords[0] if keywords else "nothing"
-    
-    if other_mentions:
-        target = other_mentions[0]
-        return f"u think {target} cares? ur both bottom fragging right now."
-        
-    base_roasts = [
-        f"my neural link is busy, but just know ur still terrible at {topic}.",
-        f"ur stats are so low my processor is ignoring u.",
-        f"ratio + skill issue + ur a {profile.get_rank()}."
-    ]
-    return random.choice(base_roasts)
 
 #--//// Web Server
 async def start_web():
     app = web.Application()
-    app.router.add_get('/', lambda r: web.Response(text="APEX AI ONLINE."))
+    app.router.add_get('/', lambda r: web.Response(text="SOP GEMINI CORE ONLINE."))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
-    print("--// WEB SERVER BINDED")
+    print("--// WEB SERVER BOUND")
 
 #--//// Events
 @bot.event
 async def on_ready():
     await start_web()
-    print("--// SOP APEX AI ONLINE")
+    print("--// SOP 100% GEMINI AI ONLINE")
 
 @bot.event
 async def on_message(message):
@@ -221,40 +88,85 @@ async def on_message(message):
 
     user = message.author.name
     content = message.content
-    clean_text = re.sub(r'<@!?[0-9]+>', '', content).strip()
+    channel_id = message.channel.id
 
+    # 1. Mise à jour des stats locales
+    stats = load_stats()
+    if user not in stats["users"]: stats["users"][user] = {"xp": 0}
+    stats["users"][user]["xp"] += 1
+    save_stats(stats)
+
+    # 2. COMMANDES ADMIN
     if content == "!sop_stats":
-        if user not in db.data["players"]: return
-        p = db.data["players"][user]
-        stats = (f"**[PLAYER RECORD: {user}]**\nRank: {PlayerProfile(user).get_rank()}\nEgo Score: {p['ego_score']}")
-        await message.reply(stats)
+        xp = stats["users"][user]["xp"]
+        await message.reply(f"ur stats: {xp} messages sent. ur still a noob tho.")
         return
 
-    if not content.startswith("!"):
-        db.process(user, clean_text)
+    if content == "!sop_consume":
+        if not message.author.guild_permissions.administrator: return
+        await message.reply("downloading channel history into my neural net. wait.")
+        
+        history = []
+        async for msg in message.channel.history(limit=50, before=message):
+            if not msg.author.bot and msg.content:
+                history.append(f"[{msg.author.name} said]: {msg.content}")
+        
+        history.reverse()
+        context_block = "\n".join(history)
+        
+        chat = get_chat_session(channel_id)
+        try:
+            await asyncio.to_thread(chat.send_message, f"Context of what happened before you arrived:\n{context_block}\nDo not reply to this specifically, just remember it.")
+            await message.reply("history digested. u guys talk about the dumbest things.")
+        except Exception as e:
+            await message.reply("my api crashed trying to read ur garbage history.")
+        return
 
+    if content == "!sop_clear":
+        if not message.author.guild_permissions.administrator: return
+        chat_sessions[channel_id] = model.start_chat(history=[])
+        await message.reply("i erased my memory of this channel. u are all nobody to me again.")
+        return
+
+    # 3. INTERACTION GEMINI PRINCIPALE
     if bot.user in message.mentions or "sop" in content.lower():
         curr = time.time()
         if user in cooldowns and (curr - cooldowns[user] < 2.0): return
         cooldowns[user] = curr
 
-        if not clean_text or clean_text.lower() == "sop":
-            await message.reply("what do u want npc.")
+        clean_text = content.replace(f'<@{bot.user.id}>', '').strip()
+        if not clean_text and not message.attachments:
+            await message.reply("pinging me for no reason? absolute bot behavior.")
             return
 
         async with message.channel.typing():
-            profile = db.process(user, clean_text)
-            if not profile: profile = PlayerProfile(user)
-            
-            other_mentions = [m.name for m in message.mentions if m != bot.user]
-            
-            # Artificial typing delay
-            words = len(clean_text.split())
-            delay = min(4.0, max(1.5, words * 0.15))
-            await asyncio.sleep(delay)
-            
-            response = await get_apex_response(user, clean_text, profile, other_mentions)
-            await message.reply(response)
+            chat = get_chat_session(channel_id)
+            prompt = f"[{user}]: {clean_text}"
+
+            try:
+                # GESTION DES IMAGES (VISION AI)
+                if message.attachments:
+                    attachment = message.attachments[0]
+                    if any(attachment.filename.lower().endswith(ext) for ext in ['png', 'jpg', 'jpeg', 'webp']):
+                        image_bytes = await attachment.read()
+                        img = Image.open(io.BytesIO(image_bytes))
+                        # Envoi de l'image + texte à Gemini
+                        response = await asyncio.to_thread(chat.send_message, [prompt, img])
+                    else:
+                        response = await asyncio.to_thread(chat.send_message, prompt + " (User attached a non-image file, roast them for it)")
+                else:
+                    # Texte uniquement
+                    response = await asyncio.to_thread(chat.send_message, prompt)
+
+                # Délai artificiel
+                delay = min(4.0, max(1.0, len(response.text) * 0.02))
+                await asyncio.sleep(delay)
+                
+                await message.reply(response.text)
+
+            except Exception as e:
+                print(f"API Error: {e}")
+                await message.reply("ur requests are too dumb and broke my api limit. touch grass and wait a minute.")
 
 #--// Run
 bot.run(DISCORD_TOKEN)
